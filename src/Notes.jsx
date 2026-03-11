@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { db } from './firebase';
-import { collection, getDocs } from 'firebase/firestore';
+import { collection, getDocs, query, where } from 'firebase/firestore';
 
 export default function Notes({ user }) {
   const [allTemplates, setAllTemplates] = useState([]);
@@ -8,20 +8,20 @@ export default function Notes({ user }) {
   const [availableConditions, setAvailableConditions] = useState([]);
   const [activeConditions, setActiveConditions] = useState([]);
   
-  // Universal standard options now BOTH default to true
   const [includeEyesHealthy, setIncludeEyesHealthy] = useState(true);
   const [includeComeSooner, setIncludeComeSooner] = useState(true);
 
   useEffect(() => {
     const fetchAllData = async () => {
       try {
-        const querySnapshot = await getDocs(collection(db, 'templates'));
+        const q = query(collection(db, 'templates'), where('userId', '==', user.uid));
+        const querySnapshot = await getDocs(q);
+        
         const items = [];
         const uniqueConditions = new Set();
         
         querySnapshot.forEach((doc) => {
           const data = doc.data();
-          // Ensure all clinical items start completely un-ticked
           items.push({ id: doc.id, parentId: '', ...data, selected: false });
           uniqueConditions.add(data.condition);
         });
@@ -37,7 +37,7 @@ export default function Notes({ user }) {
     };
 
     fetchAllData();
-  }, []);
+  }, [user.uid]);
 
   const toggleCondition = (condition) => {
     setActiveConditions(prev => {
@@ -116,6 +116,7 @@ export default function Notes({ user }) {
       formattedSequence.push({ text: 'Any probs come sooner' });
     }
 
+    // Always pulls from .text, so your clipboard remains fully detailed
     const formattedText = formattedSequence
       .map((item, index) => `${index + 1}) ${item.text}`)
       .join('\n');
@@ -129,7 +130,6 @@ export default function Notes({ user }) {
       await navigator.clipboard.writeText(formattedText);
       alert('Clinical record copied to clipboard!');
       
-      // Reset everything to the default routine baseline for the next patient
       setAllTemplates(prev => prev.map(item => ({ ...item, selected: false })));
       setActiveConditions([]);
       setIncludeEyesHealthy(true); 
@@ -193,8 +193,9 @@ export default function Notes({ user }) {
                       style={{ marginRight: '12px', marginTop: '4px', width: '18px', height: '18px', cursor: 'pointer' }}
                     />
                     <div style={{ display: 'flex', flexDirection: 'column' }}>
+                      {/* Displays the short title if provided, otherwise the full text */}
                       <label htmlFor={`item-${rootItem.id}`} style={{ cursor: 'pointer', fontSize: '16px', fontWeight: rootItem.selected ? 'bold' : 'normal' }}>
-                        {rootItem.text}
+                        {rootItem.title || rootItem.text}
                       </label>
                     </div>
                   </div>
@@ -209,8 +210,9 @@ export default function Notes({ user }) {
                           onChange={() => toggleItem(childItem.id)}
                           style={{ marginRight: '10px', marginTop: '2px', width: '16px', height: '16px', cursor: 'pointer' }}
                         />
+                        {/* Displays the short title for sub-items if provided */}
                         <label htmlFor={`item-${childItem.id}`} style={{ cursor: 'pointer', fontSize: '15px', color: '#333' }}>
-                          {childItem.text}
+                          {childItem.title || childItem.text}
                         </label>
                       </div>
                   ))}

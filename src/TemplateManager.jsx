@@ -1,19 +1,21 @@
 import React, { useState, useEffect } from 'react';
 import { db } from './firebase';
-import { collection, getDocs, addDoc, deleteDoc, updateDoc, doc } from 'firebase/firestore';
+import { collection, getDocs, addDoc, deleteDoc, updateDoc, doc, query, where } from 'firebase/firestore';
 
-export default function TemplateManager() {
+export default function TemplateManager({ user }) {
   const [templates, setTemplates] = useState([]);
   const [condition, setCondition] = useState('Cataracts');
+  const [title, setTitle] = useState(''); // New state for the Short Title
   const [text, setText] = useState('');
   const [priority, setPriority] = useState(1);
-  const [parentId, setParentId] = useState(''); // New state for linking
+  const [parentId, setParentId] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [editingId, setEditingId] = useState(null);
 
   const fetchTemplates = async () => {
     try {
-      const querySnapshot = await getDocs(collection(db, 'templates'));
+      const q = query(collection(db, 'templates'), where('userId', '==', user.uid));
+      const querySnapshot = await getDocs(q);
       const items = [];
       querySnapshot.forEach((document) => {
         items.push({ id: document.id, parentId: '', ...document.data() });
@@ -26,7 +28,7 @@ export default function TemplateManager() {
 
   useEffect(() => {
     fetchTemplates();
-  }, []);
+  }, [user.uid]);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -35,9 +37,11 @@ export default function TemplateManager() {
     setIsSubmitting(true);
     const templateData = {
       condition,
+      title: title || '', // Save the title, or an empty string if left blank
       text,
       priority: Number(priority),
-      parentId: parentId || '' // Save the link, or an empty string if it's a main item
+      parentId: parentId || '',
+      userId: user.uid
     };
 
     try {
@@ -49,7 +53,8 @@ export default function TemplateManager() {
         setPriority(Number(priority) + 1);
       }
       setText('');
-      setParentId(''); // Reset the parent link
+      setTitle(''); // Reset title
+      setParentId('');
       await fetchTemplates();
     } catch (error) {
       console.error("Error saving document: ", error);
@@ -61,6 +66,7 @@ export default function TemplateManager() {
 
   const handleEditClick = (item) => {
     setCondition(item.condition);
+    setTitle(item.title || ''); // Load the title into the form
     setText(item.text);
     setPriority(item.priority);
     setParentId(item.parentId || '');
@@ -71,6 +77,7 @@ export default function TemplateManager() {
   const handleCancelEdit = () => {
     setEditingId(null);
     setText('');
+    setTitle('');
     setPriority(1);
     setParentId('');
   };
@@ -86,12 +93,10 @@ export default function TemplateManager() {
     }
   };
 
-  // Find valid parent options (items in the same condition that aren't children themselves)
   const validParents = templates
     .filter(t => t.condition === condition && !t.parentId && t.id !== editingId)
     .sort((a, b) => a.priority - b.priority);
 
-  // Group items logically for the table display: Parents followed by their children
   const displayItems = [];
   const uniqueConditions = Array.from(new Set(templates.map(t => t.condition))).sort();
   
@@ -109,28 +114,34 @@ export default function TemplateManager() {
   });
 
   return (
-    <div style={{ padding: '20px', maxWidth: '900px', margin: '0 auto', fontFamily: 'sans-serif' }}>
+    <div style={{ padding: '20px', maxWidth: '1000px', margin: '0 auto', fontFamily: 'sans-serif' }}>
       <h2>Manage Clinical Templates</h2>
       
       <div style={{ backgroundColor: editingId ? '#fff3cd' : '#f8f9fa', padding: '20px', borderRadius: '8px', marginBottom: '30px', border: editingId ? '1px solid #ffe69c' : '1px solid #dee2e6' }}>
         <h3>{editingId ? 'Edit Template Item' : 'Add New Item'}</h3>
         <form onSubmit={handleSubmit} style={{ display: 'flex', gap: '15px', flexDirection: 'column' }}>
-          
           <div style={{ display: 'flex', gap: '15px', flexWrap: 'wrap' }}>
+            
             <div style={{ display: 'flex', flexDirection: 'column', flex: '1', minWidth: '150px' }}>
               <label style={{ marginBottom: '5px', fontSize: '14px', fontWeight: 'bold' }}>Condition</label>
               <input type="text" value={condition} onChange={(e) => setCondition(e.target.value)} required style={{ padding: '8px', border: '1px solid #ccc', borderRadius: '4px' }} />
             </div>
-            
+
+            <div style={{ display: 'flex', flexDirection: 'column', flex: '1', minWidth: '150px' }}>
+              <label style={{ marginBottom: '5px', fontSize: '14px', fontWeight: 'bold' }}>Short Title (Optional)</label>
+              <input type="text" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="e.g., Varifocals" style={{ padding: '8px', border: '1px solid #ccc', borderRadius: '4px' }} />
+            </div>
+
             <div style={{ display: 'flex', flexDirection: 'column', flex: '2', minWidth: '200px' }}>
-              <label style={{ marginBottom: '5px', fontSize: '14px', fontWeight: 'bold' }}>Management Text</label>
-              <input type="text" value={text} onChange={(e) => setText(e.target.value)} placeholder="e.g., Update Varifocals" required style={{ padding: '8px', border: '1px solid #ccc', borderRadius: '4px' }} />
+              <label style={{ marginBottom: '5px', fontSize: '14px', fontWeight: 'bold' }}>Full Clinical Text</label>
+              <input type="text" value={text} onChange={(e) => setText(e.target.value)} placeholder="e.g., Discussed adapting to varifocal lenses" required style={{ padding: '8px', border: '1px solid #ccc', borderRadius: '4px' }} />
             </div>
 
             <div style={{ display: 'flex', flexDirection: 'column', width: '80px' }}>
               <label style={{ marginBottom: '5px', fontSize: '14px', fontWeight: 'bold' }}>Priority</label>
               <input type="number" value={priority} onChange={(e) => setPriority(e.target.value)} min="1" required style={{ padding: '8px', border: '1px solid #ccc', borderRadius: '4px' }} />
             </div>
+            
           </div>
 
           <div style={{ display: 'flex', flexDirection: 'column' }}>
@@ -138,10 +149,9 @@ export default function TemplateManager() {
             <select value={parentId} onChange={(e) => setParentId(e.target.value)} style={{ padding: '8px', border: '1px solid #ccc', borderRadius: '4px', maxWidth: '400px' }}>
               <option value="">-- None (Primary Item) --</option>
               {validParents.map(p => (
-                <option key={p.id} value={p.id}>Link to: "{p.text}"</option>
+                <option key={p.id} value={p.id}>Link to: "{p.title || p.text}"</option>
               ))}
             </select>
-            <small style={{ color: '#666', marginTop: '4px' }}>If linked, this advice will only appear when its parent is ticked.</small>
           </div>
 
           <div style={{ display: 'flex', gap: '10px', marginTop: '10px' }}>
@@ -161,7 +171,7 @@ export default function TemplateManager() {
           <thead style={{ backgroundColor: '#f1f1f1' }}>
             <tr>
               <th style={{ padding: '10px', borderBottom: '1px solid #ccc' }}>Condition</th>
-              <th style={{ padding: '10px', borderBottom: '1px solid #ccc' }}>Text</th>
+              <th style={{ padding: '10px', borderBottom: '1px solid #ccc' }}>Title & Text</th>
               <th style={{ padding: '10px', borderBottom: '1px solid #ccc' }}>Priority</th>
               <th style={{ padding: '10px', borderBottom: '1px solid #ccc', textAlign: 'right' }}>Actions</th>
             </tr>
@@ -171,7 +181,9 @@ export default function TemplateManager() {
               <tr key={item.id} style={{ borderBottom: '1px solid #eee', backgroundColor: editingId === item.id ? '#fff3cd' : 'transparent' }}>
                 <td style={{ padding: '10px' }}>{item.condition}</td>
                 <td style={{ padding: '10px', paddingLeft: item.parentId ? '30px' : '10px', color: item.parentId ? '#555' : '#000' }}>
-                  {item.parentId && '↳ '}{item.text}
+                  {item.parentId && '↳ '}
+                  {/* Shows the title in bold if it exists, followed by the text */}
+                  {item.title ? <span><strong>{item.title}:</strong> {item.text}</span> : item.text}
                 </td>
                 <td style={{ padding: '10px', fontWeight: 'bold' }}>{item.priority}</td>
                 <td style={{ padding: '10px', textAlign: 'right' }}>
